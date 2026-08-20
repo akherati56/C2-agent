@@ -1,0 +1,13 @@
+[package]
+name = "agent"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = "2"              # HTTP سینکرون، بدون async runtime
+thiserror = "2"         # خطای تایپ‌شده
+tracing = "0.1"         # لاگ ساختاریافته
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rand = "0.8"            # جیتر تصادفی
