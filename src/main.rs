@@ -1,10 +1,12 @@
 use std::time::Duration;
-
+use coffee_ldr::loader::Coffee;
 use agent::agent::Agent;
 use agent::config::Config;
 use agent::error::Error;
-use agent::executor::OsCommandExecutor;
-use agent::transport::HttpTransport;
+use agent::executor::{CommandExecutor, OsCommandExecutor};
+use agent::transport::{HttpTransport, Transport};
+// use coffee_ldr::loader::Coffee;
+
 
 use tracing_subscriber::EnvFilter;
 
@@ -12,7 +14,7 @@ const USAGE: &str = "usage: agent <server_url> <sleep_seconds> [jitter]\n\
                      example: agent http://192.168.1.10:8080 5 0.2";
 
 fn main() {
-    init_logging();
+    init_logging(); 
 
     let config = match parse_args() {
         Ok(c) => c,
