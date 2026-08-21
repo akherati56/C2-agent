@@ -13,8 +13,13 @@ impl CommandExecutor for OsCommandExecutor {
     ) -> Result<String, Error> {
         #[cfg(windows)]
         let output =
-            std::process::Command::new("cmd")
-                .args(["/C", command])
+            std::process::Command::new("powershell.exe")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    command,
+                ])
                 .output();
 
         #[cfg(not(windows))]

