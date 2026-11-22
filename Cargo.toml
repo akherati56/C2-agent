@@ -11,6 +11,7 @@ thiserror = "2"         # خطای تایپ‌شده
 tracing = "0.1"         # لاگ ساختاریافته
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rand = "0.8"            # جیتر تصادفی
+CoffLoader2 = { path = "./crates/CoffLoader2" }
 
 
 windows-sys = { version = "0.59", features = [
