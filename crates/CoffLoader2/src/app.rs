@@ -5,7 +5,7 @@ use crate::loader;
 
 use std::fs::File;
 use std::process;
-
+use std::ffi::CString;
 use memmap2::Mmap;
 use imports::dependencies::analyze_dependencies;
 
@@ -20,7 +20,7 @@ use imports::dependencies::analyze_dependencies;
 //const DEVELOP_MODE: bool = false;
 const DEVELOP_MODE: bool = true;
 
-pub fn run() {
+pub fn run(args: CString) {
     let develop_mode = DEVELOP_MODE;
 
     // Hardcoded payload path — no CLI arguments.
@@ -96,8 +96,6 @@ pub fn run() {
 
         println!("\n========== LOADING & EXECUTING ==========");
     }
-
-    let args = std::ffi::CString::new("notepad.exe").unwrap();
 
     // 4. Load & execute
     if let Err(e) = loader::load_and_execute(&object, &mmap, develop_mode, &args) {

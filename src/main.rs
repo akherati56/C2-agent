@@ -16,8 +16,6 @@ const USAGE: &str = "usage: agent <server_url> <sleep_seconds> [jitter]\n\
 fn main() {
     init_logging();
 
-    CoffLoader2::run();
-
     let config = match parse_args() {
         Ok(c) => c,
         Err(e) => {
